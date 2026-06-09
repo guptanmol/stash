@@ -18,7 +18,7 @@ export const InfiniteCanvas = ({
     onMouseUp?: (e: React.MouseEvent, canvasX: number, canvasY: number) => void;
 }) => {
     const containerRef = useRef<HTMLDivElement>(null);
-    const { transform, setTransform, cards, addSection, updateCard, backgroundColor } = useBoardStore();
+    const { transform, setTransform, cards, backgroundColor } = useBoardStore();
 
     // Selection rectangle state
     const [isSelecting, setIsSelecting] = useState(false);
