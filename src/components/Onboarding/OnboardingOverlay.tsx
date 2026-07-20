@@ -233,7 +233,7 @@ export const OnboardingOverlay = () => {
                 <AnimatePresence mode="wait" custom={direction}>
                   <motion.img
                     key={step.id}
-                    src={step.image}
+                    src={`${import.meta.env.BASE_URL}${step.image.replace(/^\//, '')}`}
                     alt={step.title}
                     className="absolute inset-0 w-full h-full object-cover"
                     custom={direction}

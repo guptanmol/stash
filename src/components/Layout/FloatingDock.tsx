@@ -205,7 +205,7 @@ export const FloatingDock = () => {
             <div className="fixed top-6 left-1/2 -translate-x-1/2 flex items-center gap-4 p-2 rounded-full bg-white/10 backdrop-blur-xl border border-white/20 shadow-lg z-50">
                 {/* App Title */}
                 <div className="px-3 border-r border-foreground/10">
-                    <img src="/stash-logo.png" alt="Stash" className="h-6" />
+                    <img src={`${import.meta.env.BASE_URL}stash-logo.png`} alt="Stash" className="h-6" />
                 </div>
 
                 {/* Search */}
