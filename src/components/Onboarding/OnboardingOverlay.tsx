@@ -15,7 +15,6 @@ const ONBOARDING_KEY = 'stash-onboarding-completed';
 
 interface Step {
   id: string;
-  image: string;
   icon: React.ReactNode;
   accentColor: string;
   title: string;
@@ -27,7 +26,6 @@ interface Step {
 const steps: Step[] = [
   {
     id: 'drop',
-    image: '/onboarding/step-drop.png',
     icon: <ImagePlus className="w-5 h-5" />,
     accentColor: '#ccff00',
     title: 'Drop & Paste',
@@ -38,7 +36,6 @@ const steps: Step[] = [
   },
   {
     id: 'colors',
-    image: '/onboarding/step-colors.png',
     icon: <Palette className="w-5 h-5" />,
     accentColor: '#ff6b6b',
     title: 'Auto Color Extraction',
@@ -49,7 +46,6 @@ const steps: Step[] = [
   },
   {
     id: 'fonts',
-    image: '/onboarding/step-fonts.png',
     icon: <Sparkles className="w-5 h-5" />,
     accentColor: '#a855f7',
     title: 'AI Font Detection',
@@ -60,18 +56,16 @@ const steps: Step[] = [
   },
   {
     id: 'organize',
-    image: '/onboarding/step-organize.png',
     icon: <LayoutGrid className="w-5 h-5" />,
     accentColor: '#38bdf8',
     title: 'Sections & Connections',
     subtitle: 'Organize your ideas',
     description:
       'Draw sections to group cards. Use the Connect tool to draw lines between related pieces. Zoom and pan the infinite canvas freely.',
-    tip: 'Scroll to zoom  ·  Hold & drag to pan',
+    tip: 'Scroll to pan  ·  ⌘-scroll or pinch to zoom',
   },
   {
     id: 'voice',
-    image: '/onboarding/step-voice.png',
     icon: <Mic className="w-5 h-5" />,
     accentColor: '#f43f5e',
     title: 'Voice Memos',
@@ -221,54 +215,17 @@ export const OnboardingOverlay = () => {
               </span>
             </div>
 
-            {/* Image area */}
-            <div className="pt-14 px-6">
-              <div
-                className="relative w-full rounded-2xl overflow-hidden"
-                style={{
-                  aspectRatio: '16/10',
-                  background: 'rgba(0,0,0,0.3)',
-                }}
-              >
-                <AnimatePresence mode="wait" custom={direction}>
-                  <motion.img
-                    key={step.id}
-                    src={`${import.meta.env.BASE_URL}${step.image.replace(/^\//, '')}`}
-                    alt={step.title}
-                    className="absolute inset-0 w-full h-full object-cover"
-                    custom={direction}
-                    variants={slideVariants}
-                    initial="enter"
-                    animate="center"
-                    exit="exit"
-                    transition={{
-                      type: 'spring',
-                      damping: 30,
-                      stiffness: 300,
-                    }}
-                  />
-                </AnimatePresence>
-
-                {/* Gradient overlay on image bottom */}
-                <div
-                  className="absolute bottom-0 left-0 right-0 h-20 pointer-events-none"
-                  style={{
-                    background:
-                      'linear-gradient(to top, rgba(18,18,24,0.95), transparent)',
-                  }}
-                />
-              </div>
-            </div>
-
             {/* Content */}
-            <div className="px-8 pt-5 pb-6">
-              <AnimatePresence mode="wait">
+            <div className="px-8 pt-16 pb-6">
+              <AnimatePresence mode="wait" custom={direction}>
                 <motion.div
                   key={step.id}
-                  initial={{ opacity: 0, y: 12 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -12 }}
-                  transition={{ duration: 0.25 }}
+                  custom={direction}
+                  variants={slideVariants}
+                  initial="enter"
+                  animate="center"
+                  exit="exit"
+                  transition={{ type: 'spring', damping: 30, stiffness: 320 }}
                 >
                   {/* Icon + subtitle */}
                   <div className="flex items-center gap-2 mb-2">

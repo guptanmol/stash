@@ -124,7 +124,12 @@ export const useBoardStore = create<BoardState>((set) => {
         selectCards: (ids: string[]) => set({ selectedCardIds: ids, selectedTextBoxId: null }),
         clearSelection: () => set({ selectedCardIds: [], selectedTextBoxId: null }),
 
-        addSection: (section: SectionData) => set((state) => ({ sections: [...state.sections, section] })),
+        addSection: (section: SectionData) =>
+            set((state) => {
+                const updatedSections = [...state.sections, section];
+                saveBoardState(state.transform, updatedSections, state.backgroundColor); // Persist new section immediately
+                return { sections: updatedSections };
+            }),
         updateSection: (id: string, partial: Partial<SectionData>) =>
             set((state) => {
                 const section = state.sections.find((s) => s.id === id);

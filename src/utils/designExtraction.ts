@@ -73,7 +73,7 @@ export async function extractDesignAnnotations(url: string, apiKey: string, mode
         const candidate = data?.candidates?.[0];
         const text = candidate?.content?.parts?.[0]?.text ?? '[]';
 
-        const match = text.match(/\\[[\\s\\S]*\\]/);
+        const match = text.match(/\[[\s\S]*\]/);
         if (!match) {
             return [];
         }

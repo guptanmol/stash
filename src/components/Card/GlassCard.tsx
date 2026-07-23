@@ -1,7 +1,7 @@
 import { useRef, useState, useEffect } from 'react';
 import { useGesture } from '@use-gesture/react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Mic, Play, ExternalLink, MoreHorizontal, Square, Pause, X, Sparkles, Type, RefreshCw, Ruler } from 'lucide-react';
+import { Mic, Play, ExternalLink, Square, Pause, X, Sparkles, Type, RefreshCw, Ruler } from 'lucide-react';
 import type { CardData } from '../../types';
 import { useBoardStore } from '../../store/boardStore';
 import { useAudioRecorder } from '../../hooks/useAudioRecorder';
@@ -11,6 +11,7 @@ import { extractFontsFromVideoFrame, extractFontsFromImageUrl } from '../../util
 import { getGeminiKey } from '../../utils/geminiKeyStore';
 import { extractColorsFromUrl } from '../../utils/colorExtraction';
 import { extractDesignAnnotations } from '../../utils/designExtraction';
+import { getAudioDuration, formatDuration } from '../../utils/audio';
 
 interface GlassCardProps {
   data: CardData;
@@ -133,10 +134,11 @@ export const GlassCard = ({ data }: GlassCardProps) => {
     if (isRecording) {
       const blob = await stopRecording();
       const url = URL.createObjectURL(blob);
+      const duration = await getAudioDuration(url);
       const newMemo = {
         id: uuidv4(),
         url,
-        duration: 0, // We'd need to calculate this, but for now 0 or mock
+        duration,
         timestamp: Date.now()
       };
       updateCard(data.id, { voiceMemos: [...data.voiceMemos, newMemo] });
@@ -147,6 +149,7 @@ export const GlassCard = ({ data }: GlassCardProps) => {
 
   const handlePlayMemo = (e: React.MouseEvent, url: string, id: string) => {
     e.stopPropagation();
+    if (!url) return; // Nothing to play (e.g. a memo with no recorded audio)
     if (playingMemoId === id) {
       audioRef.current?.pause();
       setPlayingMemoId(null);
@@ -201,7 +204,7 @@ export const GlassCard = ({ data }: GlassCardProps) => {
 
   // Extract fonts for images if they haven't been extracted yet
   useEffect(() => {
-    if (data.mediaType === 'video' || data.fonts !== undefined) {
+    if (data.mediaType === 'video' || data.fonts !== undefined || !data.mediaUrl) {
       setExtractingFonts(false);
       return;
     }
@@ -272,23 +275,8 @@ export const GlassCard = ({ data }: GlassCardProps) => {
       }}
       onClick={(e) => {
         e.stopPropagation();
-
-        // Check if we're in connection mode
-        const toolMode = (window as any).whiteboardToolMode;
-        const connectionStart = (window as any).whiteboardConnectionStart;
-
-        if (toolMode === 'connection') {
-          if (!connectionStart) {
-            // First card selected
-            (window as any).whiteboardSetConnectionStart?.(data.id);
-          } else if (connectionStart !== data.id) {
-            // Second card selected, create connection
-            (window as any).whiteboardAddConnection?.(connectionStart, data.id);
-          }
-        } else {
-          // Normal selection with multi-select support
-          selectCard(data.id, e.shiftKey);
-        }
+        // Select the card (shift-click adds to the current selection)
+        selectCard(data.id, e.shiftKey);
       }}
     >
       {/* Delete Button */}
@@ -308,7 +296,8 @@ export const GlassCard = ({ data }: GlassCardProps) => {
         {/* Central Image/Video */}
         <div
           className={clsx(
-            "relative rounded-2xl overflow-hidden shadow-2xl transition-all duration-300",
+            // Concentric with the card: inner r = outer 2rem − 0.25rem (px-1/pt-1) padding → 1.75rem (R = r + padding)
+            "relative rounded-[1.75rem] overflow-hidden shadow-2xl transition-all duration-300",
             "w-full h-auto max-h-[500px]", // Hug content, maintain aspect ratio
             isSelected && data.color ? `ring-4 ring-transparent` : isSelected ? "ring-4 ring-[#ccff00]/50" : ""
           )}
@@ -376,9 +365,6 @@ export const GlassCard = ({ data }: GlassCardProps) => {
                 {extractingDNA ? <RefreshCw className="w-4 h-4 animate-spin text-[#ccff00]" /> : <Ruler className="w-4 h-4 hover:text-[#ccff00]" />}
               </button>
             )}
-            <button className="p-2 bg-black/30 backdrop-blur-md rounded-full hover:bg-black/60 text-white transition-colors">
-              <MoreHorizontal className="w-4 h-4" />
-            </button>
           </div>
         </div>
 
@@ -399,8 +385,8 @@ export const GlassCard = ({ data }: GlassCardProps) => {
       </div>
 
       {/* Extracted Colors Palette */}
-      {data.mediaType !== 'video' && (
-        <div className="w-full px-4 mb-3">
+      {data.mediaUrl && data.mediaType !== 'video' && (
+        <div className="w-full px-4 mb-2">
           {/* Header row */}
           <div className="flex items-center gap-1.5 mb-2">
             <span className="text-[10px] font-mono uppercase tracking-widest text-white/30">Colors</span>
@@ -454,9 +440,9 @@ export const GlassCard = ({ data }: GlassCardProps) => {
       {/* Extracted Fonts */}
       <AnimatePresence>
         {/* Always show the section if a Gemini key is configured (to show retry) */}
-        {(extractingFonts || data.fonts !== undefined) && getGeminiKey() && data.mediaType !== 'video' && (
+        {(extractingFonts || data.fonts !== undefined) && getGeminiKey() && data.mediaUrl && data.mediaType !== 'video' && (
           <motion.div
-            className="w-full px-3 mb-4"
+            className="w-full px-4"
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
@@ -468,8 +454,8 @@ export const GlassCard = ({ data }: GlassCardProps) => {
               <span className="text-[10px] font-mono uppercase tracking-widest text-purple-400/80">
                 {data.fonts && data.fonts.length > 0 ? 'Fonts detected' : 'Fonts detected'}
               </span>
-              {/* Only show retry when result was empty — fonts successfully found should stay locked */}
-              {(!data.fonts || data.fonts.length === 0) && (
+              {/* Show retry when nothing was found or extraction errored — successful results stay locked */}
+              {(!data.fonts || data.fonts.length === 0 || data.fonts.some(f => f.category === 'error')) && (
                 <button
                   onClick={handleRetryFonts}
                   disabled={extractingFonts}
@@ -553,84 +539,86 @@ export const GlassCard = ({ data }: GlassCardProps) => {
         )}
       </AnimatePresence>
 
-      {/* Content Area */}
-      <div className="w-full px-2 space-y-4 text-center">
-        {/* Why did I save this? */}
-        <div className="space-y-2">
-          <div className="text-sm font-bold text-[#ccff00] tracking-wide font-mono uppercase opacity-80">
-            Why did I save this:
-          </div>
+      {/* Divider — separates image-derived data (above) from personal notes (below) */}
+      {data.mediaUrl && data.mediaType !== 'video' && (
+        <div className="w-full px-4 mb-3">
+          <div className="h-px bg-white/[0.06]" />
+        </div>
+      )}
 
-          {isEditing ? (
-            <textarea
-              ref={textareaRef}
-              value={editValue}
-              onChange={(e) => setEditValue(e.target.value)}
-              onBlur={handleSave}
-              onKeyDown={handleKeyDown}
-              className="w-full bg-white/10 text-white rounded-lg p-2 text-base font-light focus:outline-none focus:ring-2 focus:ring-[#ccff00]/50 resize-none"
-              rows={3}
-              onClick={(e) => e.stopPropagation()}
-            />
-          ) : (
-            <p
-              className="text-base text-white/90 leading-relaxed font-light cursor-text hover:bg-white/5 rounded px-2 py-1 transition-colors"
-              onClick={(e) => {
-                e.stopPropagation();
-                setIsEditing(true);
-              }}
-            >
-              {data.description || "Add a description..."}
-            </p>
-          )}
+      {/* Notes — why I saved this, written and spoken together */}
+      <div className="w-full px-2 text-center">
+        <div className="text-sm font-bold text-[#ccff00] tracking-wide font-mono uppercase opacity-80 mb-2">
+          Why did I save this:
         </div>
 
-        {/* Voice Memos & Link */}
-        <div className="flex items-center justify-center gap-3 pt-1">
-          {data.link && (
-            <a
-              href={data.link}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 backdrop-blur-sm rounded-full text-xs text-white hover:bg-white/20 transition-colors"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <ExternalLink className="w-3 h-3" />
-              <span>Source</span>
-            </a>
-          )}
+        {isEditing ? (
+          <textarea
+            ref={textareaRef}
+            value={editValue}
+            onChange={(e) => setEditValue(e.target.value)}
+            onBlur={handleSave}
+            onKeyDown={handleKeyDown}
+            className="w-full bg-white/10 text-white rounded-lg p-2 text-base font-light focus:outline-none focus:ring-2 focus:ring-[#ccff00]/50 resize-none"
+            rows={3}
+            onClick={(e) => e.stopPropagation()}
+          />
+        ) : (
+          <p
+            className="text-base text-white/90 leading-relaxed font-light cursor-text hover:bg-white/5 rounded px-2 py-1 transition-colors"
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsEditing(true);
+            }}
+          >
+            {data.description || "Add a description..."}
+          </p>
+        )}
 
-          <div className="flex items-center gap-2">
+        {/* Voice notes — spoken rationale, grouped with the written note */}
+        <div className="flex items-center justify-center gap-2 flex-wrap mt-3">
+          <button
+            onClick={handleRecordToggle}
+            title={isRecording ? 'Stop recording' : 'Record a voice note'}
+            className={clsx(
+              "p-1.5 rounded-full transition-colors",
+              isRecording ? "bg-red-500 text-white animate-pulse" : "bg-white/10 hover:bg-white/20 backdrop-blur-sm text-white"
+            )}
+          >
+            {isRecording ? <Square className="w-3 h-3 fill-current" /> : <Mic className="w-3 h-3" />}
+          </button>
+
+          {data.voiceMemos.map(memo => (
             <button
-              onClick={handleRecordToggle}
+              key={memo.id}
+              onClick={(e) => handlePlayMemo(e, memo.url, memo.id)}
               className={clsx(
-                "p-1.5 rounded-full transition-colors",
-                isRecording ? "bg-red-500 text-white animate-pulse" : "bg-white/10 hover:bg-white/20 backdrop-blur-sm text-white"
+                "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full transition-colors",
+                playingMemoId === memo.id ? "bg-[#ccff00] text-black" : "bg-white/10 hover:bg-white/20 backdrop-blur-sm text-white"
               )}
             >
-              {isRecording ? <Square className="w-3 h-3 fill-current" /> : <Mic className="w-3 h-3" />}
+              {playingMemoId === memo.id ? <Pause className="w-2.5 h-2.5" /> : <Play className="w-2.5 h-2.5" />}
+              <span className="text-[10px] font-mono">{formatDuration(memo.duration)}</span>
             </button>
-
-            {data.voiceMemos.length > 0 && (
-              <div className="flex gap-2">
-                {data.voiceMemos.map(memo => (
-                  <button
-                    key={memo.id}
-                    onClick={(e) => handlePlayMemo(e, memo.url, memo.id)}
-                    className={clsx(
-                      "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full transition-colors",
-                      playingMemoId === memo.id ? "bg-[#ccff00] text-black" : "bg-white/10 hover:bg-white/20 backdrop-blur-sm text-white"
-                    )}
-                  >
-                    {playingMemoId === memo.id ? <Pause className="w-2.5 h-2.5" /> : <Play className="w-2.5 h-2.5" />}
-                    <span className="text-[10px] font-mono">0:23</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          ))}
         </div>
       </div>
+
+      {/* Source — provenance (where this came from) */}
+      {data.link && (
+        <div className="w-full px-2 mt-4 pt-3 border-t border-white/[0.06] flex justify-center">
+          <a
+            href={data.link}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 backdrop-blur-sm rounded-full text-xs text-white hover:bg-white/20 transition-colors"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <ExternalLink className="w-3 h-3" />
+            <span>Source</span>
+          </a>
+        </div>
+      )}
     </motion.div>
   );
 };

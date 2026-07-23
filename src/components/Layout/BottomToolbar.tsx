@@ -1,9 +1,9 @@
-import { Square, Workflow, Type, Palette } from 'lucide-react';
+import { Square, Type, Palette } from 'lucide-react';
 import { useBoardStore } from '../../store/boardStore';
 import { useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 
-type ToolMode = 'none' | 'connection' | 'textbox' | 'section';
+type ToolMode = 'none' | 'textbox' | 'section';
 
 export const BottomToolbar = () => {
     const {
@@ -11,13 +11,11 @@ export const BottomToolbar = () => {
         selectedTextBoxId,
         addSection,
         addTextBox,
-        addConnection,
         updateCard,
         updateTextBox,
     } = useBoardStore();
 
     const [toolMode, setToolMode] = useState<ToolMode>('none');
-    const [connectionStart, setConnectionStart] = useState<string | null>(null);
     const [selectedColor, setSelectedColor] = useState('#ccff00');
 
     const handleSectionMode = () => {
@@ -25,16 +23,6 @@ export const BottomToolbar = () => {
             setToolMode('none');
         } else {
             setToolMode('section');
-        }
-    };
-
-    const handleConnectionMode = () => {
-        if (toolMode === 'connection') {
-            setToolMode('none');
-            setConnectionStart(null);
-        } else {
-            setToolMode('connection');
-            setConnectionStart(null);
         }
     };
 
@@ -61,18 +49,6 @@ export const BottomToolbar = () => {
     // Expose tool mode and handlers to parent via window (for App.tsx to use)
     if (typeof window !== 'undefined') {
         (window as any).whiteboardToolMode = toolMode;
-        (window as any).whiteboardConnectionStart = connectionStart;
-        (window as any).whiteboardSetConnectionStart = setConnectionStart;
-        (window as any).whiteboardAddConnection = (fromId: string, toId: string) => {
-            addConnection({
-                id: uuidv4(),
-                fromCardId: fromId,
-                toCardId: toId,
-                color: selectedColor,
-            });
-            setConnectionStart(null);
-            setToolMode('none');
-        };
         (window as any).whiteboardAddTextBox = (x: number, y: number) => {
             addTextBox({
                 id: uuidv4(),
@@ -113,22 +89,6 @@ export const BottomToolbar = () => {
             >
                 <Square className="w-5 h-5" />
                 <span className="text-sm font-medium">Section</span>
-            </button>
-
-            {/* Divider */}
-            <div className="w-px h-6 bg-foreground/10" />
-
-            {/* Draw Connecting Nodes */}
-            <button
-                onClick={handleConnectionMode}
-                className={`flex items-center gap-2 px-4 py-2 rounded-full transition-colors ${toolMode === 'connection'
-                    ? 'bg-[#ccff00]/20 text-[#ccff00]'
-                    : 'hover:bg-white/20 text-foreground/70 hover:text-foreground'
-                    }`}
-                title="Draw Connecting Nodes (Click two cards)"
-            >
-                <Workflow className="w-5 h-5" />
-                <span className="text-sm font-medium">Connect</span>
             </button>
 
             {/* Divider */}

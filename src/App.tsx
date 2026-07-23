@@ -15,7 +15,7 @@ import { extractColorsFromUrl } from './utils/colorExtraction';
 import { OnboardingOverlay } from './components/Onboarding/OnboardingOverlay';
 
 function App() {
-  const { cards, textBoxes, connections, sections, addCard, removeCard, selectedCardIds, clearSelection, transform } = useBoardStore();
+  const { cards, textBoxes, connections, sections, addCard, removeCard, selectedCardIds, clearSelection, transform, selectedTextBoxId, removeTextBox } = useBoardStore();
   usePreventZoom();
 
   const [sectionStart, setSectionStart] = useState<{ x: number; y: number } | null>(null);
@@ -24,20 +24,26 @@ function App() {
   // Delete key handler
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedCardIds.length > 0) {
-        // Only delete if not typing in an input/textarea
-        const target = e.target as HTMLElement;
-        if (target.tagName !== 'INPUT' && target.tagName !== 'TEXTAREA') {
-          e.preventDefault();
-          selectedCardIds.forEach(cardId => removeCard(cardId));
-          clearSelection();
-        }
+      if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+      if (selectedCardIds.length === 0 && !selectedTextBoxId) return;
+
+      // Only delete if not typing in an input/textarea
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
+
+      e.preventDefault();
+      if (selectedCardIds.length > 0) {
+        selectedCardIds.forEach(cardId => removeCard(cardId));
       }
+      if (selectedTextBoxId) {
+        removeTextBox(selectedTextBoxId);
+      }
+      clearSelection();
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedCardIds, removeCard, clearSelection]);
+  }, [selectedCardIds, removeCard, clearSelection, selectedTextBoxId, removeTextBox]);
 
   useEffect(() => {
     const handlePaste = async (e: ClipboardEvent) => {
@@ -112,7 +118,7 @@ function App() {
           title: "Inspiration",
           description: "Cool design pattern for the new landing page. Love the use of negative space.",
           mediaUrl: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=2564&auto=format&fit=crop",
-          voiceMemos: [{ id: "1", url: "", duration: 23, timestamp: Date.now() }],
+          voiceMemos: [],
           link: "https://dribbble.com",
           tags: [
             { id: "1", label: "Crop", x: -120, y: -80 },

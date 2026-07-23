@@ -1,73 +1,29 @@
-# React + TypeScript + Vite
+# Stash
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+An infinite-canvas design scrapbook. Drop or paste images and videos onto the board and Stash turns each into a card, then automatically:
 
-Currently, two official plugins are available:
+- **extracts a color palette** from every image
+- **detects typefaces** with Gemini Vision (bring your own API key) and links them to Google Fonts
+- **annotates design measurements** on demand — the "Design DNA" ruler overlays padding/spacing/size callouts
+- lets you group cards into **sections**, add **text notes**, and attach **voice memos** on why you saved something
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+Everything persists locally in your browser (IndexedDB) — no account, no server.
 
-## React Compiler
+## Develop
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Production build:
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm run build
 ```
+
+The app deploys to GitHub Pages on every push to `main` (see `.github/workflows/deploy.yml`).
+
+## Roadmap / deferred
+
+- **Connections — rebuild with better AI.** The manual "Connect" tool (drawing lines between cards) was **removed in this version** because it wasn't useful enough to keep. Rebuild it later as a proper relationship layer powered by stronger AI models — e.g. auto-suggesting related cards, semantic clustering of the board, and AI-generated labels for each connection — instead of hand-drawn lines. The underlying `connections` store, `ConnectionLine` renderer, and `addConnection`/`removeConnection` actions are left in place (dormant) as a starting point.

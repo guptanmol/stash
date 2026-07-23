@@ -6,6 +6,7 @@ import { GeminiKeyModal } from './GeminiKeyModal';
 import { v4 as uuidv4 } from 'uuid';
 import { useAudioRecorder } from '../../hooks/useAudioRecorder';
 import { extractColorsFromUrl } from '../../utils/colorExtraction';
+import { getAudioDuration } from '../../utils/audio';
 
 export const FloatingDock = () => {
     const { backgroundColor, setBackgroundColor, cards, addCard, transform, searchQuery, setSearchQuery } = useBoardStore();
@@ -54,10 +55,12 @@ export const FloatingDock = () => {
     /** New Board: add a blank card at the viewport center */
     const handleNewCard = () => {
         const { canvasX, canvasY } = getViewportCenter();
+        // Stagger successive cards so repeated adds don't stack perfectly on top of each other.
+        const offset = (cards.length % 6) * 28;
         addCard({
             id: uuidv4(),
-            x: canvasX - 150,
-            y: canvasY - 200,
+            x: canvasX - 150 + offset,
+            y: canvasY - 200 + offset,
             width: 300,
             height: 400,
             title: 'New Card',
@@ -165,6 +168,7 @@ export const FloatingDock = () => {
         if (isRecording) {
             const blob = await stopRecording();
             const audioUrl = URL.createObjectURL(blob);
+            const duration = await getAudioDuration(audioUrl);
             const { canvasX, canvasY } = getViewportCenter();
 
             addCard({
@@ -179,7 +183,7 @@ export const FloatingDock = () => {
                 voiceMemos: [{
                     id: uuidv4(),
                     url: audioUrl,
-                    duration: 0,
+                    duration,
                     timestamp: Date.now(),
                 }],
                 tags: [],
