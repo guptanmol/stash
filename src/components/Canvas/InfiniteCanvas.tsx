@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { useGesture } from '@use-gesture/react';
 import { useBoardStore } from '../../store/boardStore';
+import { useContrastTheme } from '../../utils/theme';
 
 export const InfiniteCanvas = ({
     children,
@@ -19,6 +20,7 @@ export const InfiniteCanvas = ({
 }) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const { transform, setTransform, cards, backgroundColor } = useBoardStore();
+    const theme = useContrastTheme();
 
     // Selection rectangle state
     const [isSelecting, setIsSelecting] = useState(false);
@@ -159,19 +161,22 @@ export const InfiniteCanvas = ({
                     const minY = Math.min(selectionStart.y, selectionEnd.y);
                     const maxY = Math.max(selectionStart.y, selectionEnd.y);
 
-                    // Find cards within selection
-                    const selectedCards = cards.filter(card => {
-                        const cardCenterX = card.x + 150; // Approximate center
-                        const cardCenterY = card.y + 200;
-                        return cardCenterX >= minX && cardCenterX <= maxX &&
-                            cardCenterY >= minY && cardCenterY <= maxY;
-                    });
+                    const withinBounds = (cx: number, cy: number) =>
+                        cx >= minX && cx <= maxX && cy >= minY && cy <= maxY;
 
-                    // If cards were selected, select them
-                    if (selectedCards.length > 0) {
-                        useBoardStore.getState().selectCards(selectedCards.map(c => c.id));
+                    // Cards and text boxes whose center falls inside the rectangle.
+                    const state = useBoardStore.getState();
+                    const selectedCards = cards.filter(card =>
+                        withinBounds(card.x + (card.width || 300) / 2, card.y + (card.height || 400) / 2)
+                    );
+                    const selectedTextBoxes = state.textBoxes.filter(tb =>
+                        withinBounds(tb.x + (tb.width || 300) / 2, tb.y + (tb.height || 60) / 2)
+                    );
+
+                    if (selectedCards.length > 0 || selectedTextBoxes.length > 0) {
+                        state.setSelection(selectedCards.map(c => c.id), selectedTextBoxes.map(t => t.id));
                     } else {
-                        useBoardStore.getState().clearSelection();
+                        state.clearSelection();
                     }
 
                     setIsSelecting(false);
@@ -193,8 +198,8 @@ export const InfiniteCanvas = ({
                 className="absolute inset-0 pointer-events-none"
                 style={{
                     backgroundImage: `
-            linear-gradient(to right, rgba(255, 255, 255, 0.1) 1px, transparent 1px),
-            linear-gradient(to bottom, rgba(255, 255, 255, 0.1) 1px, transparent 1px)
+            linear-gradient(to right, ${theme.grid} 1px, transparent 1px),
+            linear-gradient(to bottom, ${theme.grid} 1px, transparent 1px)
           `,
                     backgroundSize: `${40 * transform.scale}px ${40 * transform.scale}px`,
                     backgroundPosition: `${transform.x}px ${transform.y}px`,

@@ -21,6 +21,14 @@ export interface DesignAnnotation {
     type?: 'spacing' | 'dimension' | 'typography' | 'color';
 }
 
+export interface MediaItem {
+    id: string;
+    url: string;
+    type: 'image' | 'video';
+    colors?: string[];
+    fonts?: FontMatch[];
+}
+
 export interface CardData {
     id: string;
     x: number;
@@ -30,6 +38,10 @@ export interface CardData {
     title: string;
     description: string;
     link?: string;
+    /** All media on the card. The single `mediaUrl`/`mediaType`/`colors`/`fonts`
+     *  below mirror the active item for backward compatibility. */
+    media?: MediaItem[];
+    activeMediaIndex?: number;
     mediaUrl: string;
     mediaType?: 'image' | 'video';
     voiceMemos: VoiceMemo[];
@@ -66,4 +78,25 @@ export interface Connection {
     fromCardId: string;
     toCardId: string;
     color: string;
+}
+
+export type ConnectorSide = 'top' | 'right' | 'bottom' | 'left';
+
+/**
+ * An orthogonal connector that starts from one side of a text box and ends
+ * either at a free canvas point or pinned to a card (annotation). When pinned,
+ * the endpoint is stored as a canvas-space offset from the card origin so it
+ * follows the card as it moves.
+ */
+export interface Connector {
+    id: string;
+    fromTextBoxId: string;
+    fromSide: ConnectorSide;
+    color: string;
+    toCardId?: string;
+    toMediaId?: string; // the specific media item annotated (visible only when it's active)
+    toDX?: number; // offset from card origin (canvas units) when pinned
+    toDY?: number;
+    toX?: number;  // free canvas point when not pinned
+    toY?: number;
 }

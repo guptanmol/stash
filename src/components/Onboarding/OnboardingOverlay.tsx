@@ -38,41 +38,41 @@ const steps: Step[] = [
     id: 'colors',
     icon: <Palette className="w-5 h-5" />,
     accentColor: '#ff6b6b',
-    title: 'Auto Color Extraction',
-    subtitle: 'Instant palettes',
+    title: 'Instant color palettes',
+    subtitle: 'Free & on-device',
     description:
-      'Every image you add is scanned for its dominant brand colors. Click any swatch to copy the hex. Hit the ↻ button to re-extract anytime.',
-    tip: 'Click a swatch to copy hex code',
+      'Every image is scanned right in your browser for its key colors — no account, no API key, no cost. Click a swatch to copy the hex, or hit ↻ to re-extract.',
+    tip: 'Click a swatch to copy its hex',
   },
   {
     id: 'fonts',
     icon: <Sparkles className="w-5 h-5" />,
     accentColor: '#a855f7',
-    title: 'AI Font Detection',
-    subtitle: 'Powered by Gemini Vision',
+    title: 'Font detection',
+    subtitle: 'Optional · free',
     description:
-      'Add your Gemini API key in the ✨ menu and every image will have its typefaces identified automatically — with links to Google Fonts.',
-    tip: '✨ button in the top bar  →  Add API key',
+      "Add a Gemini API key (the ✨ button) to identify typefaces and link them to Google Fonts. Google's free tier is $0, and it's completely optional — everything else works without it.",
+    tip: '✨ in the top bar  →  add a free key',
+  },
+  {
+    id: 'notes',
+    icon: <Mic className="w-5 h-5" />,
+    accentColor: '#f43f5e',
+    title: 'Notes, voice & source',
+    subtitle: 'Why you saved it',
+    description:
+      'Write or record why a piece caught your eye — the note and voice memo live together on the card. Add a source link so you can always get back to where it came from.',
+    tip: '🎙 record  ·  🔗 add source',
   },
   {
     id: 'organize',
     icon: <LayoutGrid className="w-5 h-5" />,
     accentColor: '#38bdf8',
-    title: 'Sections & Connections',
-    subtitle: 'Organize your ideas',
+    title: 'Organize & annotate',
+    subtitle: 'Make sense of it',
     description:
-      'Draw sections to group cards. Use the Connect tool to draw lines between related pieces. Zoom and pan the infinite canvas freely.',
-    tip: 'Scroll to pan  ·  ⌘-scroll or pinch to zoom',
-  },
-  {
-    id: 'voice',
-    icon: <Mic className="w-5 h-5" />,
-    accentColor: '#f43f5e',
-    title: 'Voice Memos',
-    subtitle: 'Talk through your thinking',
-    description:
-      'Hit the mic on any card to record a voice note about why you saved it. Play it back anytime to recall your thought process.',
-    tip: '🎙 button on each card',
+      'Draw sections to group cards — they capture whatever they cover and resize freely. Drop a text note, then drag from its edge to draw a right-angle connector onto any image as an annotation. Recolor the board anytime; everything stays readable.',
+    tip: 'Section · Text · drag a note onto an image',
   },
 ];
 

@@ -1,7 +1,7 @@
 import { useRef, useState, useEffect } from 'react';
 import { useGesture } from '@use-gesture/react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Mic, Play, ExternalLink, Square, Pause, X, Sparkles, Type, RefreshCw, Ruler } from 'lucide-react';
+import { Mic, Play, ExternalLink, Square, Pause, X, Sparkles, Type, RefreshCw, Link2, Pencil, Check, Upload, Plus } from 'lucide-react';
 import type { CardData } from '../../types';
 import { useBoardStore } from '../../store/boardStore';
 import { useAudioRecorder } from '../../hooks/useAudioRecorder';
@@ -10,8 +10,9 @@ import { clsx } from 'clsx';
 import { extractFontsFromVideoFrame, extractFontsFromImageUrl } from '../../utils/fontExtraction';
 import { getGeminiKey } from '../../utils/geminiKeyStore';
 import { extractColorsFromUrl } from '../../utils/colorExtraction';
-import { extractDesignAnnotations } from '../../utils/designExtraction';
 import { getAudioDuration, formatDuration } from '../../utils/audio';
+import { getMedia, activeIndex } from '../../utils/media';
+import { MediaCarousel } from './MediaCarousel';
 
 interface GlassCardProps {
   data: CardData;
@@ -19,13 +20,33 @@ interface GlassCardProps {
 
 export const GlassCard = ({ data }: GlassCardProps) => {
   const ref = useRef<HTMLDivElement>(null);
-  const { updateCard, selectCard, removeCard, selectedCardIds, transform, searchQuery } = useBoardStore();
+  const { updateCard, selectCard, removeCard, selectedCardIds, transform, searchQuery, addMediaToCard, setActiveMedia, updateMediaItem } = useBoardStore();
   const { isRecording, startRecording, stopRecording } = useAudioRecorder();
   const [playingMemoId, setPlayingMemoId] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const isSelected = selectedCardIds.includes(data.id);
   const scale = transform.scale;
+
+  // Media (supports multiple images/videos per card; the active one is shown).
+  const media = getMedia(data);
+  const idx = activeIndex(data);
+  const active = media[idx] || null;
+  const addFileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleAddFiles = async (files: FileList | null) => {
+    if (!files) return;
+    for (const file of Array.from(files)) {
+      if (!file.type.startsWith('image/') && !file.type.startsWith('video/')) continue;
+      const url = URL.createObjectURL(file);
+      const isVideo = file.type.startsWith('video/');
+      let colors: string[] = [];
+      if (!isVideo) {
+        try { colors = await extractColorsFromUrl(url); } catch (e) { console.error('color extract failed', e); }
+      }
+      addMediaToCard(data.id, { id: uuidv4(), url, type: isVideo ? 'video' : 'image', colors });
+    }
+  };
 
   // Search match logic
   const isSearchActive = searchQuery.trim().length > 0;
@@ -35,24 +56,61 @@ export const GlassCard = ({ data }: GlassCardProps) => {
   );
   const [extractingFonts, setExtractingFonts] = useState(false);
   const [extractingColors, setExtractingColors] = useState(false);
-  const [extractingDNA, setExtractingDNA] = useState(false);
 
-  // Manually reset and re-trigger font extraction
-  const handleRetryFonts = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (extractingFonts) return;
-    // Setting fonts to undefined causes the effect to re-run extraction
-    updateCard(data.id, { fonts: undefined });
+  // Source-link editing
+  const [editingLink, setEditingLink] = useState(false);
+  const [linkValue, setLinkValue] = useState(data.link || '');
+
+  const saveLink = () => {
+    const v = linkValue.trim();
+    const normalized = v ? (/^https?:\/\//i.test(v) ? v : `https://${v}`) : undefined;
+    updateCard(data.id, { link: normalized });
+    setEditingLink(false);
   };
 
-  // Re-extract colors from the image
+  // Resize the image (and therefore the whole card) via the bottom-right handle.
+  const resizeRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = resizeRef.current;
+    if (!el) return;
+    const onDown = (e: PointerEvent) => {
+      // Native stopPropagation prevents the card's move-gesture from starting.
+      e.stopPropagation();
+      e.preventDefault();
+      const startX = e.clientX;
+      const startWidth = data.width || 300;
+      const onMove = (ev: PointerEvent) => {
+        const dx = (ev.clientX - startX) / (transform.scale || 1);
+        const newWidth = Math.max(220, Math.min(900, startWidth + dx));
+        updateCard(data.id, { width: newWidth });
+      };
+      const onUp = () => {
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+      };
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+    };
+    el.addEventListener('pointerdown', onDown);
+    return () => el.removeEventListener('pointerdown', onDown);
+  }, [data.id, data.width, transform.scale, updateCard]);
+
+  // Manually reset and re-trigger font extraction (on the active image).
+  const handleRetryFonts = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (extractingFonts || !active) return;
+    // Setting fonts to undefined causes the effect to re-run extraction
+    updateMediaItem(data.id, active.id, { fonts: undefined });
+  };
+
+  // Re-extract colors from the active image
   const handleRetryColors = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (extractingColors || !data.mediaUrl || data.mediaType === 'video') return;
+    if (extractingColors || !active || active.type === 'video') return;
     setExtractingColors(true);
     try {
-      const colors = await extractColorsFromUrl(data.mediaUrl);
-      updateCard(data.id, { colors });
+      const colors = await extractColorsFromUrl(active.url);
+      updateMediaItem(data.id, active.id, { colors });
     } catch (err) {
       console.error('Color re-extraction failed', err);
     } finally {
@@ -60,30 +118,14 @@ export const GlassCard = ({ data }: GlassCardProps) => {
     }
   };
 
-  // Extract design annotations (manual only)
-  const handleExtractDNA = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (extractingDNA || !data.mediaUrl || data.mediaType === 'video') return;
-    
-    const gemini = getGeminiKey();
-    if (!gemini) {
-      alert('Please set your Gemini API key first using the ✨ button.');
-      return;
-    }
-
-    setExtractingDNA(true);
-    try {
-      const annotations = await extractDesignAnnotations(data.mediaUrl, gemini.key, gemini.modelId);
-      updateCard(data.id, { designAnnotations: annotations });
-    } catch (err) {
-      console.error('Design DNA extraction failed', err);
-    } finally {
-      setExtractingDNA(false);
-    }
-  };
-
   useGesture({
-    onDrag: ({ movement: [dx, dy], first, last, memo }) => {
+    onDrag: ({ movement: [dx, dy], first, last, memo, event }) => {
+      // Ignore drags that begin on the resize handle — those resize, not move.
+      if (first && (event.target as HTMLElement)?.closest?.('[data-resize-handle]')) {
+        return { skip: true };
+      }
+      if (memo?.skip) return memo;
+
       let [initialX, initialY] = memo || [data.x, data.y];
 
       if (first) {
@@ -169,24 +211,23 @@ export const GlassCard = ({ data }: GlassCardProps) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(data.description);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const videoFontExtractedRef = useRef(false);
 
-  // Extract fonts from video first frame
+  // Extract fonts from the active video's first frame
   useEffect(() => {
-    if (data.mediaType !== 'video' || videoFontExtractedRef.current) return;
-    if (data.fonts !== undefined) { videoFontExtractedRef.current = true; return; } // already extracted
-
+    if (!active || active.type !== 'video' || active.fonts !== undefined) return;
     const video = videoRef.current;
     if (!video) return;
 
+    let done = false;
     const tryExtract = async () => {
+      if (done) return;
+      done = true;
       const gemini = getGeminiKey();
       if (!gemini) return;
-      videoFontExtractedRef.current = true;
       setExtractingFonts(true);
       try {
         const fonts = await extractFontsFromVideoFrame(video, gemini.key, gemini.modelId);
-        updateCard(data.id, { fonts });
+        updateMediaItem(data.id, active.id, { fonts });
       } finally {
         setExtractingFonts(false);
       }
@@ -199,12 +240,11 @@ export const GlassCard = ({ data }: GlassCardProps) => {
       video.addEventListener('loadeddata', onLoaded);
       return () => video.removeEventListener('loadeddata', onLoaded);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data.mediaType, data.id]);
+  }, [active?.id, active?.type, active?.fonts, data.id, updateMediaItem]);
 
-  // Extract fonts for images if they haven't been extracted yet
+  // Extract fonts for the active image if it hasn't been done yet
   useEffect(() => {
-    if (data.mediaType === 'video' || data.fonts !== undefined || !data.mediaUrl) {
+    if (!active || active.type === 'video' || active.fonts !== undefined || !active.url) {
       setExtractingFonts(false);
       return;
     }
@@ -215,21 +255,21 @@ export const GlassCard = ({ data }: GlassCardProps) => {
         setExtractingFonts(false);
         return;
       }
-      
+
       setExtractingFonts(true);
       try {
-        const fonts = await extractFontsFromImageUrl(data.mediaUrl, gemini.key, gemini.modelId);
-        updateCard(data.id, { fonts });
+        const fonts = await extractFontsFromImageUrl(active.url, gemini.key, gemini.modelId);
+        updateMediaItem(data.id, active.id, { fonts });
       } catch (e) {
         console.error("Font extraction failed", e);
-        updateCard(data.id, { fonts: [] }); // ensure we stop loading
+        updateMediaItem(data.id, active.id, { fonts: [] }); // ensure we stop loading
       } finally {
         setExtractingFonts(false);
       }
     };
 
     tryExtractImageFonts();
-  }, [data.mediaType, data.fonts, data.mediaUrl, data.id, updateCard]);
+  }, [active?.id, active?.url, active?.fonts, active?.type, data.id, updateMediaItem]);
 
   useEffect(() => {
     if (isEditing && textareaRef.current) {
@@ -257,20 +297,25 @@ export const GlassCard = ({ data }: GlassCardProps) => {
   return (
     <motion.div
       ref={ref}
+      data-card-id={data.id}
       className={clsx(
         "absolute flex flex-col items-center group select-none pt-1 pb-1.5 px-1 rounded-[2rem]", // Top 4px (pt-1), Bottom 6px (pb-1.5), Horizontal 4px (px-1)
-        "bg-black/30 backdrop-blur-md",
-        "w-fit h-fit min-w-[300px] max-w-[500px]", // Fit content (width and height) with constraints
+        "bg-black/30 backdrop-blur-md border border-white/[0.08]", // Subtle border keeps the card distinct from a same-colored background
+        "h-fit", // Height hugs content; width is controlled by data.width (resizable)
         "cursor-grab active:cursor-grabbing",
         isSearchActive && !isSearchMatch && "pointer-events-auto"
       )}
       style={{
         left: 0,
         top: 0,
+        width: data.width,
         transform: `translate3d(${data.x}px, ${data.y}px, 0)`,
         opacity: isSearchActive && !isSearchMatch ? 0.25 : 1,
         transition: 'opacity 0.3s ease, box-shadow 0.3s ease',
-        boxShadow: isSearchMatch ? '0 0 0 3px #ccff00, 0 0 24px rgba(204,255,0,0.35)' : undefined,
+        // Soft shadow so cards read as lifted surfaces even on a near-black board
+        boxShadow: isSearchMatch
+          ? '0 0 0 3px #ccff00, 0 0 24px rgba(204,255,0,0.35)'
+          : '0 12px 40px rgba(0,0,0,0.55)',
         borderRadius: '2rem',
       }}
       onClick={(e) => {
@@ -279,26 +324,14 @@ export const GlassCard = ({ data }: GlassCardProps) => {
         selectCard(data.id, e.shiftKey);
       }}
     >
-      {/* Delete Button */}
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          removeCard(data.id);
-        }}
-        className="absolute top-2 right-2 z-10 p-1.5 rounded-full bg-red-500/80 hover:bg-red-600 opacity-0 group-hover:opacity-100 transition-opacity duration-200"
-        title="Delete card"
-      >
-        <X className="w-4 h-4 text-white" />
-      </button>
-
       {/* Floating Tags Container */}
       <div className="relative w-full flex justify-center items-center mb-6">
-        {/* Central Image/Video */}
+        {/* Central Image/Video (active item of the card's media) */}
         <div
           className={clsx(
             // Concentric with the card: inner r = outer 2rem − 0.25rem (px-1/pt-1) padding → 1.75rem (R = r + padding)
             "relative rounded-[1.75rem] overflow-hidden shadow-2xl transition-all duration-300",
-            "w-full h-auto max-h-[500px]", // Hug content, maintain aspect ratio
+            "w-full h-auto", // Hug content, keep aspect ratio; width follows the resizable card
             isSelected && data.color ? `ring-4 ring-transparent` : isSelected ? "ring-4 ring-[#ccff00]/50" : ""
           )}
           style={{
@@ -307,65 +340,83 @@ export const GlassCard = ({ data }: GlassCardProps) => {
           onMouseEnter={() => videoRef.current?.play()}
           onMouseLeave={() => videoRef.current?.pause()}
         >
-          {data.mediaUrl ? (
-            data.mediaType === 'video' ? (
+          {/* Hidden input for adding media to this card */}
+          <input
+            ref={addFileInputRef}
+            type="file"
+            accept="image/*,video/*"
+            multiple
+            className="hidden"
+            onChange={(e) => { handleAddFiles(e.target.files); e.target.value = ''; }}
+          />
+
+          {active ? (
+            active.type === 'video' ? (
               <video
+                key={active.id}
                 ref={videoRef}
-                src={data.mediaUrl}
+                src={active.url}
                 className="w-full h-auto object-contain pointer-events-none"
                 loop
                 muted
                 playsInline
               />
             ) : (
-              <img src={data.mediaUrl} alt={data.title} className="w-full h-auto object-contain pointer-events-none" />
+              <img key={active.id} src={active.url} alt={data.title} className="w-full h-auto object-contain pointer-events-none" />
             )
           ) : (
-            <div className="w-full h-[300px] bg-secondary/30 flex items-center justify-center text-muted-foreground">
-              No Media
+            <div className="w-full h-[300px] bg-secondary/30 flex flex-col items-center justify-center gap-3 text-muted-foreground">
+              <span className="text-sm">No media yet</span>
+              <button
+                onClick={(e) => { e.stopPropagation(); addFileInputRef.current?.click(); }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white text-xs transition-colors"
+              >
+                <Upload className="w-3.5 h-3.5" /> Upload image or video
+              </button>
+              <span className="text-[11px] text-white/30">or select the card and paste</span>
             </div>
           )}
 
-          {/* Glowing Dots (Design DNA) */}
-          {data.designAnnotations && data.designAnnotations.map((ann) => (
-            <div
-              key={ann.id}
-              className="absolute group/dot"
-              style={{
-                left: `${ann.x}%`,
-                top: `${ann.y}%`,
-                transform: 'translate(-50%, -50%)'
-              }}
+          {/* Add-more button (top-left) */}
+          {active && (
+            <button
+              onClick={(e) => { e.stopPropagation(); addFileInputRef.current?.click(); }}
+              title="Add image or video"
+              className="absolute top-2 left-2 z-20 p-2 rounded-full bg-black/50 backdrop-blur-md border border-white/25 text-white/90 opacity-0 group-hover:opacity-100 hover:bg-black/70 transition-all"
             >
-              {/* The pulsing dot */}
-              <div className="relative w-5 h-5 flex items-center justify-center cursor-help">
-                <div className="absolute inset-0 bg-[#ccff00] rounded-full animate-ping opacity-60"></div>
-                <div className="relative w-2.5 h-2.5 bg-[#ccff00] rounded-full shadow-[0_0_8px_#ccff00]"></div>
-              </div>
+              <Plus className="w-4 h-4" />
+            </button>
+          )}
 
-              {/* The hover popover */}
-              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 pointer-events-none opacity-0 group-hover/dot:opacity-100 transition-opacity duration-200 z-50">
-                <div className="bg-black/80 backdrop-blur-md border border-white/10 rounded-xl py-2 px-3.5 flex flex-col items-center whitespace-nowrap shadow-xl">
-                  <span className="text-[10px] text-white/50 uppercase tracking-wider font-mono mb-0.5">{ann.label}</span>
-                  <span className="text-sm font-semibold text-[#ccff00]">{ann.value}</span>
-                </div>
+          {/* Delete card (top-right, same inset/padding as the add button) */}
+          <button
+            onClick={(e) => { e.stopPropagation(); removeCard(data.id); }}
+            title="Delete card"
+            className="absolute top-2 right-2 z-20 p-2 rounded-full bg-red-500/80 hover:bg-red-600 text-white opacity-0 group-hover:opacity-100 transition-all"
+          >
+            <X className="w-4 h-4" />
+          </button>
+
+          {/* Resize handle — appears on hover; drag to resize the image (and the card with it) */}
+          {active && (
+            <div
+              ref={resizeRef}
+              data-resize-handle
+              title="Drag to resize"
+              className="absolute bottom-2 right-2 z-20 opacity-0 group-hover:opacity-100 transition-opacity cursor-nwse-resize touch-none"
+            >
+              <div className="w-6 h-6 rounded-lg bg-black/50 backdrop-blur-md border border-white/25 flex items-center justify-center text-white/80 hover:bg-black/70 transition-colors">
+                <svg width="11" height="11" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                  <path d="M9 3 L3 9 M9 6.5 L6.5 9" />
+                </svg>
               </div>
             </div>
-          ))}
+          )}
 
-          {/* Card Actions Overlay */}
-          <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
-            {data.mediaType !== 'video' && (
-              <button 
-                onClick={handleExtractDNA}
-                disabled={extractingDNA}
-                className="p-2 bg-black/30 backdrop-blur-md rounded-full hover:bg-black/60 text-white transition-colors disabled:opacity-50"
-                title="Extract Design DNA (Measurements)"
-              >
-                {extractingDNA ? <RefreshCw className="w-4 h-4 animate-spin text-[#ccff00]" /> : <Ruler className="w-4 h-4 hover:text-[#ccff00]" />}
-              </button>
-            )}
-          </div>
+          {/* Carousel — Dock-style magnification; only when >1 media item. */}
+          {media.length > 1 && (
+            <MediaCarousel media={media} activeIndex={idx} onSelect={(i) => setActiveMedia(data.id, i)} />
+          )}
         </div>
 
         {/* Floating Tags */}
@@ -539,6 +590,21 @@ export const GlassCard = ({ data }: GlassCardProps) => {
         )}
       </AnimatePresence>
 
+      {/* Optional font detection prompt — only when no key is configured (image cards). */}
+      {!getGeminiKey() && data.mediaUrl && data.mediaType !== 'video' && (
+        <div className="w-full px-4 mb-3 flex justify-center">
+          <button
+            onClick={(e) => { e.stopPropagation(); (window as any).stashOpenAiKeyModal?.(); }}
+            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] text-purple-300/70 hover:text-purple-200 transition-colors"
+            style={{ background: 'rgba(168,85,247,0.10)', border: '1px solid rgba(168,85,247,0.25)' }}
+            title="Optional — add a free Gemini key to detect fonts"
+          >
+            <Sparkles className="w-3 h-3" />
+            <span>Detect fonts — optional, free</span>
+          </button>
+        </div>
+      )}
+
       {/* Divider — separates image-derived data (above) from personal notes (below) */}
       {data.mediaUrl && data.mediaType !== 'video' && (
         <div className="w-full px-4 mb-3">
@@ -604,21 +670,64 @@ export const GlassCard = ({ data }: GlassCardProps) => {
         </div>
       </div>
 
-      {/* Source — provenance (where this came from) */}
-      {data.link && (
-        <div className="w-full px-2 mt-4 pt-3 border-t border-white/[0.06] flex justify-center">
-          <a
-            href={data.link}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 backdrop-blur-sm rounded-full text-xs text-white hover:bg-white/20 transition-colors"
+      {/* Source — provenance (add / edit / open) */}
+      <div className="w-full px-2 mt-4 pt-3 border-t border-white/[0.06] flex justify-center">
+        {editingLink ? (
+          <div
+            className="flex items-center gap-1.5 w-full max-w-[280px]"
             onClick={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
           >
-            <ExternalLink className="w-3 h-3" />
-            <span>Source</span>
-          </a>
-        </div>
-      )}
+            <input
+              autoFocus
+              value={linkValue}
+              onChange={(e) => setLinkValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') saveLink();
+                if (e.key === 'Escape') { setLinkValue(data.link || ''); setEditingLink(false); }
+              }}
+              placeholder="Paste a source URL…"
+              className="flex-1 min-w-0 bg-white/10 text-white text-xs rounded-full px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#ccff00]/40 placeholder:text-white/30"
+            />
+            <button
+              onClick={saveLink}
+              title="Save source"
+              className="p-1.5 rounded-full bg-[#ccff00] text-black hover:brightness-110 transition"
+            >
+              <Check className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        ) : data.link ? (
+          <div className="flex items-center gap-2">
+            <a
+              href={data.link}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 backdrop-blur-sm rounded-full text-xs text-white hover:bg-white/20 transition-colors"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <ExternalLink className="w-3 h-3" />
+              <span>Source</span>
+            </a>
+            <button
+              onClick={(e) => { e.stopPropagation(); setLinkValue(data.link || ''); setEditingLink(true); }}
+              title="Edit source"
+              className="p-1.5 rounded-full text-white/40 hover:text-white/80 hover:bg-white/10 transition-colors"
+            >
+              <Pencil className="w-3 h-3" />
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={(e) => { e.stopPropagation(); setLinkValue(''); setEditingLink(true); }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs text-white/45 hover:text-white/80 hover:bg-white/10 transition-colors"
+            title="Add a source link"
+          >
+            <Link2 className="w-3 h-3" />
+            <span>Add source</span>
+          </button>
+        )}
+      </div>
     </motion.div>
   );
 };

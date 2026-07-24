@@ -5,11 +5,19 @@ export interface FontMatch {
     googleFontSlug: string; // for linking to fonts.google.com
 }
 
-const SYSTEM_PROMPT = `Identify every font or typeface visible in this image.
+const SYSTEM_PROMPT = `You are a typography expert. Identify the fonts / typefaces used in any visible text in this image.
 
-Return ONLY a JSON array of font names — no markdown, no explanation, no extra text.
-Example: ["Inter", "Playfair Display", "Roboto Mono"]
-If there is no text at all, return: []`;
+Respond with ONLY a JSON array. Each element:
+{"name": string, "category": "serif" | "sans-serif" | "monospace" | "display" | "script" | "handwriting", "confidence": "high" | "medium" | "low", "google_font": boolean}
+
+Rules:
+- If ANY text is visible, always return at least the primary font — never an empty array just because you're unsure.
+- If you can't name the exact typeface, give your closest well-known match and set "confidence" to "low".
+- "google_font": true only if it is on Google Fonts (system fonts such as SF Pro, Segoe UI, Helvetica, Arial are false).
+- Return at most 5, most prominent first.
+- Return [] ONLY when the image genuinely contains no text at all.
+
+Example: [{"name":"Inter","category":"sans-serif","confidence":"high","google_font":true}]`;
 
 // A 1x1 white pixel PNG in base64 — used for vision capability validation
 const TINY_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg==';
@@ -81,7 +89,11 @@ async function callGeminiVision(base64: string, mimeType: string, apiKey: string
         }],
         generationConfig: {
             temperature: 0,
-            maxOutputTokens: 512,
+            // Generous budget so "thinking" models (e.g. gemini-2.5-flash) don't
+            // spend the whole allowance on reasoning and return empty output.
+            maxOutputTokens: 2048,
+            // Force pure JSON so we never have to scrape prose/markdown.
+            responseMimeType: 'application/json',
         }
     };
 
@@ -109,66 +121,82 @@ async function callGeminiVision(base64: string, mimeType: string, apiKey: string
         throw new Error(`Gemini blocked response: finishReason=${finishReason}`);
     }
 
-    const text = candidate?.content?.parts?.[0]?.text ?? '[]';
-    console.log('[FontExtraction] Raw Gemini response text:', text);
+    // Join every text part (a thinking model may split its output).
+    const text: string = (candidate?.content?.parts || [])
+        .map((p: any) => p?.text)
+        .filter(Boolean)
+        .join('\n') || '';
+    console.log('[FontExtraction] Raw Gemini response text:', text, '| finishReason:', finishReason);
 
-    // Extract everything between outermost [ … ] to handle any conversational wrapper text
-    const match = text.match(/\[[\s\S]*\]/);
-    if (!match) {
-        console.warn('[FontExtraction] No JSON array found in response');
-        return [];
+    const tryParse = (s: string): any => { try { return JSON.parse(s); } catch { return null; } };
+
+    // With responseMimeType=application/json the whole body is JSON; fall back to
+    // scraping a [...] or {...} block for older models that ignore it.
+    let parsed: any = tryParse(text.trim());
+    if (parsed == null) {
+        const m = text.match(/\[[\s\S]*\]/) || text.match(/\{[\s\S]*\}/);
+        if (m) parsed = tryParse(m[0]);
+    }
+
+    // Normalize to an array of font entries (handles bare arrays and { fonts: [...] } wrappers).
+    const parsedArray: any[] = Array.isArray(parsed)
+        ? parsed
+        : Array.isArray(parsed?.fonts)
+            ? parsed.fonts
+            : (parsed && typeof parsed === 'object' ? (Object.values(parsed).find(Array.isArray) as any[] | undefined) || [] : []);
+
+    if (!parsedArray.length && !text.trim()) {
+        console.warn('[FontExtraction] Empty model output (finishReason=%s)', finishReason);
     }
 
     try {
-        const parsed = JSON.parse(match[0]);
-        if (!Array.isArray(parsed)) return [];
-
-        // Normalise: accept both simple strings ["Inter"] AND objects [{name:"Inter",...}]
-        // Gemini may use either format depending on how it interprets the prompt.
-        const GOOGLE_FONT_SLUGS: Record<string, string> = {
-            'inter': 'inter', 'roboto': 'roboto', 'open sans': 'open-sans',
-            'lato': 'lato', 'montserrat': 'montserrat', 'playfair display': 'playfair-display',
-            'playfair': 'playfair-display', 'poppins': 'poppins', 'nunito': 'nunito',
-            'raleway': 'raleway', 'oswald': 'oswald', 'merriweather': 'merriweather',
-            'source sans': 'source-sans-3', 'pt sans': 'pt-sans', 'ubuntu': 'ubuntu',
-            'noto sans': 'noto-sans', 'fira code': 'fira-code', 'jetbrains mono': 'jetbrains-mono',
-            'georgia': '', 'arial': '', 'helvetica': '', 'times new roman': '',
-            'sf pro': '', 'system-ui': '', 'roboto mono': 'roboto-mono',
-        };
+        // Common non-Google (system/foundry) fonts we should NOT link to Google Fonts.
+        const NON_GOOGLE = new Set([
+            'arial', 'helvetica', 'helvetica neue', 'times', 'times new roman', 'georgia',
+            'courier', 'courier new', 'verdana', 'tahoma', 'calibri', 'cambria', 'segoe ui',
+            'sf pro', 'sf pro text', 'sf pro display', 'san francisco', 'system-ui', 'system ui',
+            'gill sans', 'futura', 'avenir', 'myriad', 'gotham', 'proxima nova', 'trajan',
+        ]);
 
         const guessCategory = (name: string): string => {
             const n = name.toLowerCase();
             if (n.includes('mono') || n.includes('code') || n.includes('courier')) return 'monospace';
-            if (n.includes('serif') || n.includes('georgia') || n.includes('times') || 
+            if (n.includes('serif') || n.includes('georgia') || n.includes('times') ||
                 n.includes('garamond') || n.includes('playfair') || n.includes('merriweather')) return 'serif';
-            if (n.includes('script') || n.includes('cursive') || n.includes('brush')) return 'script';
+            if (n.includes('script') || n.includes('cursive') || n.includes('brush') || n.includes('hand')) return 'script';
             if (n.includes('display') || n.includes('black') || n.includes('condensed')) return 'display';
             return 'sans-serif';
         };
 
-        const results: FontMatch[] = [];
-        for (const item of parsed) {
-            if (typeof item === 'string' && item.trim()) {
-                // Simple string format: ["Inter", "Playfair Display"]
-                const name = item.trim();
-                const slug = GOOGLE_FONT_SLUGS[name.toLowerCase()] ?? '';
-                results.push({
-                    name,
-                    category: guessCategory(name),
-                    confidence: 'medium',
-                    googleFontSlug: slug,
-                });
-            } else if (item && typeof item === 'object' && typeof item.name === 'string') {
-                // Object format: [{name:"Inter", category?:..., confidence?:..., googleFontSlug?:...}]
-                const name = item.name.trim();
-                const slug = item.googleFontSlug ?? GOOGLE_FONT_SLUGS[name.toLowerCase()] ?? '';
-                results.push({
-                    name,
-                    category: item.category || guessCategory(name),
-                    confidence: item.confidence || 'medium',
-                    googleFontSlug: slug,
-                });
+        // Any font we believe is on Google Fonts gets a specimen link generated
+        // directly from its name (Google Fonts URLs are just the name, spaces → +).
+        const slugFor = (name: string, isGoogle: boolean): string => {
+            if (!isGoogle) return '';
+            if (NON_GOOGLE.has(name.toLowerCase())) return '';
+            return name.trim().replace(/\s+/g, '+');
+        };
+
+        // Accept a bare string, or an object under any of the common key names.
+        const nameOf = (item: any): string => {
+            if (typeof item === 'string') return item.trim();
+            if (item && typeof item === 'object') {
+                const v = item.name ?? item.font ?? item.fontName ?? item.typeface ?? item.family ?? item.fontFamily;
+                return typeof v === 'string' ? v.trim() : '';
             }
+            return '';
+        };
+
+        const results: FontMatch[] = [];
+        for (const item of parsedArray) {
+            const name = nameOf(item);
+            if (!name) continue;
+            const obj = (item && typeof item === 'object') ? item : {};
+            const category = obj.category || guessCategory(name);
+            const confidence = (['high', 'medium', 'low'].includes(obj.confidence) ? obj.confidence : 'medium') as FontMatch['confidence'];
+            const isGoogle = typeof obj.google_font === 'boolean'
+                ? obj.google_font
+                : !NON_GOOGLE.has(name.toLowerCase());
+            results.push({ name, category, confidence, googleFontSlug: slugFor(name, isGoogle) });
         }
         return results;
     } catch (e) {

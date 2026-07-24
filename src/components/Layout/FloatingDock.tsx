@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Plus, Upload, Clipboard, Mic, Search, Palette, Sparkles, Square } from 'lucide-react';
+import { Plus, Upload, Clipboard, Mic, Search, Palette, Sparkles, Square, MessageSquare } from 'lucide-react';
 import { useBoardStore } from '../../store/boardStore';
 import { getGeminiKey } from '../../utils/geminiKeyStore';
 import { GeminiKeyModal } from './GeminiKeyModal';
@@ -7,9 +7,15 @@ import { v4 as uuidv4 } from 'uuid';
 import { useAudioRecorder } from '../../hooks/useAudioRecorder';
 import { extractColorsFromUrl } from '../../utils/colorExtraction';
 import { getAudioDuration } from '../../utils/audio';
+import { useContrastTheme } from '../../utils/theme';
+
+// Feedback opens a prefilled X (Twitter) DM compose to the maker.
+const X_HANDLE = 'anymanymoll';
+const FEEDBACK_URL = `https://x.com/messages/compose?recipient_id=${X_HANDLE}&text=${encodeURIComponent('feedback on stash: ')}`;
 
 export const FloatingDock = () => {
     const { backgroundColor, setBackgroundColor, cards, addCard, transform, searchQuery, setSearchQuery } = useBoardStore();
+    const theme = useContrastTheme();
     const [aiModalOpen, setAiModalOpen] = useState(false);
     const [hasKey, setHasKey] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -18,6 +24,12 @@ export const FloatingDock = () => {
     useEffect(() => {
         setHasKey(!!getGeminiKey());
     }, [aiModalOpen]); // re-check after modal closes
+
+    // Let cards open the key modal (e.g. the optional "detect fonts" prompt).
+    useEffect(() => {
+        (window as any).stashOpenAiKeyModal = () => setAiModalOpen(true);
+        return () => { delete (window as any).stashOpenAiKeyModal; };
+    }, []);
 
     // Count matching cards for search badge
     const matchCount = searchQuery.trim()
@@ -206,22 +218,26 @@ export const FloatingDock = () => {
                 onChange={handleFileChange}
             />
 
-            <div className="fixed top-6 left-1/2 -translate-x-1/2 flex items-center gap-4 p-2 rounded-full bg-white/10 backdrop-blur-xl border border-white/20 shadow-lg z-50">
+            <div
+                className="fixed top-6 left-1/2 -translate-x-1/2 flex items-center gap-4 p-2 rounded-full backdrop-blur-xl border shadow-lg z-50"
+                style={{ background: theme.surface, borderColor: theme.border, color: theme.fg }}
+            >
                 {/* App Title */}
-                <div className="px-3 border-r border-foreground/10">
+                <div className="px-3 border-r" style={{ borderColor: theme.border }}>
                     <img src={`${import.meta.env.BASE_URL}stash-logo.png`} alt="Stash" className="h-6" />
                 </div>
 
                 {/* Search */}
                 <div className="relative group">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 opacity-60 group-focus-within:opacity-100 transition-opacity" />
                     <input
                         type="text"
                         placeholder="Search cards..."
                         value={searchQuery}
                         onChange={handleSearchChange}
                         onKeyDown={handleSearchKeyDown}
-                        className="pl-9 pr-4 py-1.5 rounded-full bg-white/20 hover:bg-white/30 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 w-48 transition-all placeholder:text-muted-foreground/70"
+                        className="pl-9 pr-4 py-1.5 rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-[#ccff00]/30 w-48 transition-all placeholder:opacity-50"
+                        style={{ background: theme.surface, color: theme.fg }}
                     />
                     {/* Match count badge */}
                     {searchQuery.trim() && (
@@ -232,27 +248,27 @@ export const FloatingDock = () => {
                 </div>
 
                 {/* Divider */}
-                <div className="w-px h-6 bg-foreground/10" />
+                <div className="w-px h-6" style={{ background: theme.border }} />
 
                 {/* Actions */}
                 <div className="flex items-center gap-1 pr-2">
                     <button
                         onClick={handleNewCard}
-                        className="p-2 hover:bg-white/20 rounded-full transition-colors text-foreground/70 hover:text-foreground"
+                        className="p-2 hover:bg-white/10 rounded-full transition-colors opacity-70 hover:opacity-100"
                         title="Add New Card"
                     >
                         <Plus className="w-5 h-5" />
                     </button>
                     <button
                         onClick={handleUploadClick}
-                        className="p-2 hover:bg-white/20 rounded-full transition-colors text-foreground/70 hover:text-foreground"
+                        className="p-2 hover:bg-white/10 rounded-full transition-colors opacity-70 hover:opacity-100"
                         title="Upload Image or Video"
                     >
                         <Upload className="w-5 h-5" />
                     </button>
                     <button
                         onClick={handlePaste}
-                        className="p-2 hover:bg-white/20 rounded-full transition-colors text-foreground/70 hover:text-foreground"
+                        className="p-2 hover:bg-white/10 rounded-full transition-colors opacity-70 hover:opacity-100"
                         title="Paste from Clipboard"
                     >
                         <Clipboard className="w-5 h-5" />
@@ -262,7 +278,7 @@ export const FloatingDock = () => {
                         className={`p-2 rounded-full transition-colors ${
                             isRecording
                                 ? 'bg-red-500 text-white animate-pulse'
-                                : 'hover:bg-red-50 text-red-500/80 hover:text-red-500'
+                                : 'hover:bg-red-500/10 text-red-500/80 hover:text-red-500'
                         }`}
                         title={isRecording ? 'Stop Recording & Create Card' : 'Record Voice Memo'}
                     >
@@ -270,31 +286,31 @@ export const FloatingDock = () => {
                     </button>
 
                     {/* Divider */}
-                    <div className="w-px h-6 bg-foreground/10 mx-1" />
+                    <div className="w-px h-6 mx-1" style={{ background: theme.border }} />
 
-                    {/* AI Font Extraction Button */}
+                    {/* AI Font Detection Button */}
                     <button
                         onClick={() => setAiModalOpen(true)}
                         className="relative p-2 rounded-full transition-all hover:scale-105"
                         style={{
                             background: hasKey
                                 ? 'linear-gradient(135deg, rgba(168,85,247,0.25), rgba(99,102,241,0.25))'
-                                : 'rgba(255,255,255,0.05)',
+                                : 'transparent',
                         }}
-                        title="AI Font Extraction"
+                        title="AI font detection (optional, free key)"
                     >
-                        <Sparkles className={`w-5 h-5 ${hasKey ? 'text-purple-400' : 'text-foreground/50'}`} />
+                        <Sparkles className="w-5 h-5" style={{ color: hasKey ? '#c084fc' : theme.fgSubtle }} />
                         {hasKey && (
                             <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-[#ccff00] shadow-[0_0_6px_rgba(204,255,0,0.8)]" />
                         )}
                     </button>
 
                     {/* Divider */}
-                    <div className="w-px h-6 bg-foreground/10 mx-1" />
+                    <div className="w-px h-6 mx-1" style={{ background: theme.border }} />
 
                     {/* Background Color Picker */}
                     <div className="flex items-center gap-2 px-2">
-                        <Palette className="w-4 h-4 text-foreground/70" />
+                        <Palette className="w-4 h-4 opacity-70" />
                         <input
                             type="color"
                             value={backgroundColor}
@@ -303,6 +319,20 @@ export const FloatingDock = () => {
                             title="Change Background Color"
                         />
                     </div>
+
+                    {/* Divider */}
+                    <div className="w-px h-6 mx-1" style={{ background: theme.border }} />
+
+                    {/* Feedback (far right) — opens a prefilled X DM */}
+                    <a
+                        href={FEEDBACK_URL}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="p-2 hover:bg-white/10 rounded-full transition-colors opacity-70 hover:opacity-100"
+                        title="Send feedback (opens an X DM)"
+                    >
+                        <MessageSquare className="w-5 h-5" />
+                    </a>
                 </div>
             </div>
 

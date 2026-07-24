@@ -8,6 +8,7 @@ import { GlassCard } from './components/Card/GlassCard';
 import { TextBox } from './components/TextBox/TextBox';
 import { Section } from './components/Section/Section';
 import { ConnectionLine } from './components/Connection/ConnectionLine';
+import { ConnectorLayer } from './components/Connection/ConnectorLayer';
 import { v4 as uuidv4 } from 'uuid';
 
 import { usePreventZoom } from './hooks/usePreventZoom';
@@ -15,7 +16,7 @@ import { extractColorsFromUrl } from './utils/colorExtraction';
 import { OnboardingOverlay } from './components/Onboarding/OnboardingOverlay';
 
 function App() {
-  const { cards, textBoxes, connections, sections, addCard, removeCard, selectedCardIds, clearSelection, transform, selectedTextBoxId, removeTextBox } = useBoardStore();
+  const { cards, textBoxes, connections, sections, addCard, removeCard, selectedCardIds, clearSelection, transform, selectedTextBoxId, removeTextBox, addMediaToCard } = useBoardStore();
   usePreventZoom();
 
   const [sectionStart, setSectionStart] = useState<{ x: number; y: number } | null>(null);
@@ -45,6 +46,28 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedCardIds, removeCard, clearSelection, selectedTextBoxId, removeTextBox]);
 
+  // Shortcuts: T = new text box, Shift+S = new section (at the viewport center).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const t = useBoardStore.getState().transform;
+      const cx = (window.innerWidth / 2 - t.x) / t.scale;
+      const cy = (window.innerHeight / 2 - t.y) / t.scale;
+      const key = e.key.toLowerCase();
+      if (key === 't' && !e.shiftKey) {
+        e.preventDefault();
+        (window as any).whiteboardAddTextBox?.(cx - 150, cy - 30);
+      } else if (key === 's' && e.shiftKey) {
+        e.preventDefault();
+        (window as any).whiteboardAddSection?.(cx - 250, cy - 200, 500, 400);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   useEffect(() => {
     const handlePaste = async (e: ClipboardEvent) => {
       const items = e.clipboardData?.items;
@@ -67,17 +90,21 @@ function App() {
               }
             }
 
-            // Calculate center of viewport in canvas coordinates
+            // If exactly one card is selected, add the pasted media TO that card
+            // instead of creating a new card.
+            const sel = useBoardStore.getState().selectedCardIds;
+            if (sel.length === 1) {
+              addMediaToCard(sel[0], { id: uuidv4(), url, type: isVideo ? 'video' : 'image', colors });
+              continue;
+            }
+
+            // Otherwise create a new card centered in the viewport.
             const viewportCenterX = window.innerWidth / 2;
             const viewportCenterY = window.innerHeight / 2;
-
-            // Transform to canvas space: (screen - pan) / scale
             const canvasX = (viewportCenterX - transform.x) / transform.scale;
             const canvasY = (viewportCenterY - transform.y) / transform.scale;
-
-            // Center the card (width=300, height=400)
-            const cardX = canvasX - 150; // 300/2
-            const cardY = canvasY - 200; // 400/2
+            const cardX = canvasX - 150;
+            const cardY = canvasY - 200;
 
             const cardId = uuidv4();
             addCard({
@@ -101,7 +128,7 @@ function App() {
 
     window.addEventListener('paste', handlePaste);
     return () => window.removeEventListener('paste', handlePaste);
-  }, [addCard, transform]);
+  }, [addCard, addMediaToCard, transform]);
 
   useEffect(() => {
     const init = async () => {
@@ -247,6 +274,9 @@ function App() {
         {textBoxes.map(textBox => (
           <TextBox key={textBox.id} data={textBox} />
         ))}
+
+        {/* Orthogonal connectors / annotations (+ live draft) */}
+        <ConnectorLayer />
 
         {/* Preview Section */}
         {sectionStart && sectionCurrent && (

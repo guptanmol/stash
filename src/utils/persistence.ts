@@ -1,10 +1,11 @@
 import { openDB, type DBSchema } from 'idb';
-import type { CardData, SectionData, TextBox, Connection } from '../types';
+import type { CardData, SectionData, TextBox, Connection, Connector, MediaItem } from '../types';
+import { getMedia } from './media';
 
 interface WhiteboardDB extends DBSchema {
     cards: {
         key: string;
-        value: CardData & { mediaBlob?: Blob; voiceMemoBlobs?: Record<string, Blob> };
+        value: CardData & { mediaBlob?: Blob; mediaBlobs?: Record<string, Blob>; voiceMemoBlobs?: Record<string, Blob> };
     };
     boardState: {
         key: string;
@@ -23,10 +24,14 @@ interface WhiteboardDB extends DBSchema {
         key: string;
         value: Connection;
     };
+    connectors: {
+        key: string;
+        value: Connector;
+    };
 }
 
 const DB_NAME = 'whiteboard-db';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 export const initDB = async () => {
     return openDB<WhiteboardDB>(DB_NAME, DB_VERSION, {
@@ -43,22 +48,47 @@ export const initDB = async () => {
             if (!db.objectStoreNames.contains('connections')) {
                 db.createObjectStore('connections', { keyPath: 'id' });
             }
+            if (!db.objectStoreNames.contains('connectors')) {
+                db.createObjectStore('connectors', { keyPath: 'id' });
+            }
         },
     });
 };
 
+export const saveConnector = async (connector: Connector) => {
+    const db = await initDB();
+    await db.put('connectors', connector);
+};
+
+export const deleteConnector = async (id: string) => {
+    const db = await initDB();
+    await db.delete('connectors', id);
+};
+
+export const loadConnectors = async (): Promise<Connector[]> => {
+    const db = await initDB();
+    return db.getAll('connectors');
+};
+
 export const saveCard = async (card: CardData) => {
     const db = await initDB();
-    let mediaBlob: Blob | undefined;
     const voiceMemoBlobs: Record<string, Blob> = {};
+    const mediaBlobs: Record<string, Blob> = {};
 
-    // If it's a blob URL, we need to fetch the blob to store it
-    if (card.mediaUrl && card.mediaUrl.startsWith('blob:')) {
-        try {
-            const response = await fetch(card.mediaUrl);
-            mediaBlob = await response.blob();
-        } catch (error) {
-            console.error('Failed to fetch blob for saving:', error);
+    // Persist every media item's blob; keep remote URLs as-is.
+    const items = getMedia(card);
+    const mediaMeta: MediaItem[] = [];
+    for (const it of items) {
+        if (it.url && it.url.startsWith('blob:')) {
+            try {
+                mediaBlobs[it.id] = await (await fetch(it.url)).blob();
+                mediaMeta.push({ ...it, url: '' }); // rebuilt from the blob on load
+            } catch (error) {
+                console.error('Failed to fetch media blob for saving:', error);
+                mediaMeta.push({ ...it, url: '' });
+            }
+        } else {
+            mediaMeta.push(it);
         }
     }
 
@@ -75,7 +105,14 @@ export const saveCard = async (card: CardData) => {
         }
     }
 
-    await db.put('cards', { ...card, mediaBlob, voiceMemoBlobs });
+    const activeIdx = Math.min(Math.max(0, card.activeMediaIndex ?? 0), Math.max(0, mediaMeta.length - 1));
+    await db.put('cards', {
+        ...card,
+        media: mediaMeta,
+        activeMediaIndex: activeIdx,
+        mediaBlobs,
+        voiceMemoBlobs,
+    });
 };
 
 export const deleteCard = async (id: string) => {
@@ -88,11 +125,26 @@ export const loadCards = async (): Promise<CardData[]> => {
     const cards = await db.getAll('cards');
 
     return cards.map((card) => {
-        let mediaUrl = card.mediaUrl;
-        if (card.mediaBlob) {
-            mediaUrl = URL.createObjectURL(card.mediaBlob);
+        const blobs = card.mediaBlobs || {};
+        // Rebuild media URLs from stored blobs (or keep remote URLs).
+        let media: MediaItem[] = (card.media || []).map((it) => ({
+            ...it,
+            url: it.url && !it.url.startsWith('blob:')
+                ? it.url
+                : (blobs[it.id] ? URL.createObjectURL(blobs[it.id]) : (it.url || '')),
+        }));
+        // Back-compat for cards saved before multi-media (single mediaBlob / remote mediaUrl).
+        if (!media.length) {
+            if (card.mediaBlob) {
+                media = [{ id: `${card.id}-legacy`, url: URL.createObjectURL(card.mediaBlob), type: card.mediaType || 'image', colors: card.colors, fonts: card.fonts }];
+            } else if (card.mediaUrl) {
+                media = [{ id: `${card.id}-legacy`, url: card.mediaUrl, type: card.mediaType || 'image', colors: card.colors, fonts: card.fonts }];
+            }
         }
-        
+
+        const activeIdx = Math.min(Math.max(0, card.activeMediaIndex ?? 0), Math.max(0, media.length - 1));
+        const active = media[activeIdx];
+
         let voiceMemos = card.voiceMemos || [];
         if (card.voiceMemoBlobs) {
             voiceMemos = voiceMemos.map(memo => {
@@ -103,8 +155,17 @@ export const loadCards = async (): Promise<CardData[]> => {
             });
         }
 
-        const { mediaBlob, voiceMemoBlobs, ...rest } = card;
-        return { ...rest, mediaUrl, voiceMemos };
+        const { mediaBlob, mediaBlobs, voiceMemoBlobs, ...rest } = card;
+        return {
+            ...rest,
+            media,
+            activeMediaIndex: activeIdx,
+            mediaUrl: active?.url || '',
+            mediaType: active?.type || rest.mediaType,
+            colors: active?.colors ?? rest.colors,
+            fonts: active?.fonts ?? rest.fonts,
+            voiceMemos,
+        };
     });
 };
 
@@ -118,7 +179,7 @@ export const saveBoardState = async (
         id: 'current',
         transform,
         sections,
-        backgroundColor: backgroundColor || '#303030'
+        backgroundColor: backgroundColor || '#0d0d0d'
     });
 };
 

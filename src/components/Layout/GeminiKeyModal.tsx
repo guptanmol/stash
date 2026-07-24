@@ -96,9 +96,11 @@ export const GeminiKeyModal = ({ open, onClose }: GeminiKeyModalProps) => {
                     role: 'user',
                     parts: [
                         { inlineData: { mimeType, data: base64 } },
-                        { text: 'List every font name you can see in this image. Reply with a JSON array.' },
+                        { text: 'List every font name you can see in this image. Reply with ONLY a JSON array of strings.' },
                     ]
-                }]
+                }],
+                // Mirror the real font-extraction config so this is a faithful test.
+                generationConfig: { temperature: 0, maxOutputTokens: 2048, responseMimeType: 'application/json' },
             };
             const resp = await fetch(url, {
                 method: 'POST',
@@ -182,7 +184,10 @@ export const GeminiKeyModal = ({ open, onClose }: GeminiKeyModalProps) => {
                             </div>
 
                             <p className="text-white/60 text-sm mb-6 leading-relaxed">
-                                Drop in your Gemini API key and every image or video you add to the board will automatically have its fonts identified.
+                                Font detection is <span className="text-white/80">optional</span>. Add a Gemini API key
+                                — Google AI Studio's free tier is <span className="text-white/80">$0</span> — and every image
+                                you add will have its typefaces identified and linked to Google Fonts. Everything else
+                                (colors, notes, voice) works without it.
                             </p>
 
                             {/* Get key link */}

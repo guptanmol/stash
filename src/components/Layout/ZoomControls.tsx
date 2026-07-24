@@ -1,5 +1,6 @@
 import { Minus, Plus, Maximize } from 'lucide-react';
 import { useBoardStore } from '../../store/boardStore';
+import { useContrastTheme } from '../../utils/theme';
 
 const MIN_SCALE = 0.1;
 const MAX_SCALE = 5;
@@ -7,6 +8,7 @@ const clampScale = (s: number) => Math.max(MIN_SCALE, Math.min(MAX_SCALE, s));
 
 export const ZoomControls = () => {
     const { transform, setTransform, cards, textBoxes } = useBoardStore();
+    const theme = useContrastTheme();
 
     // Zoom while keeping the center of the viewport fixed on screen.
     const zoomBy = (factor: number) => {
@@ -60,18 +62,21 @@ export const ZoomControls = () => {
     };
 
     return (
-        <div className="absolute bottom-2 right-2 flex flex-col items-center gap-2 bg-white/80 backdrop-blur-md border border-border rounded-full p-1 shadow-sm z-50">
-            <button onClick={handleZoomIn} className="p-2 hover:bg-secondary rounded-full text-muted-foreground hover:text-foreground transition-colors" title="Zoom in">
+        <div
+            className="absolute bottom-2 right-2 flex flex-col items-center gap-2 backdrop-blur-md border rounded-full p-1 shadow-sm z-50"
+            style={{ background: theme.surface, borderColor: theme.border, color: theme.fg }}
+        >
+            <button onClick={handleZoomIn} className="p-2 hover:bg-white/10 rounded-full opacity-70 hover:opacity-100 transition-colors" title="Zoom in">
                 <Plus className="w-4 h-4" />
             </button>
-            <span className="text-xs font-mono w-12 text-center text-muted-foreground">
+            <span className="text-xs font-mono w-12 text-center opacity-70">
                 {Math.round(transform.scale * 100)}%
             </span>
-            <button onClick={handleZoomOut} className="p-2 hover:bg-secondary rounded-full text-muted-foreground hover:text-foreground transition-colors" title="Zoom out">
+            <button onClick={handleZoomOut} className="p-2 hover:bg-white/10 rounded-full opacity-70 hover:opacity-100 transition-colors" title="Zoom out">
                 <Minus className="w-4 h-4" />
             </button>
-            <div className="h-px w-4 bg-border my-1" />
-            <button onClick={handleFitToBoard} className="p-2 hover:bg-secondary rounded-full text-muted-foreground hover:text-foreground transition-colors" title="Fit to content">
+            <div className="h-px w-4 my-1" style={{ background: theme.border }} />
+            <button onClick={handleFitToBoard} className="p-2 hover:bg-white/10 rounded-full opacity-70 hover:opacity-100 transition-colors" title="Fit to content">
                 <Maximize className="w-4 h-4" />
             </button>
         </div>
